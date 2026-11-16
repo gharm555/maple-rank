@@ -458,12 +458,16 @@
       const chips = el("div", { class: "chips" });
       if (m.auto && m.sched) {
         if (m.sched.error) chips.append(el("span", { class: "err", text: m.sched.error }));
-        const list = m.sched.bosses || [];
+        // 주간·월간만. 같은 보스를 다른 난이도로 잡았으면 안 잡은 난이도는 숨김
+        const wm = (m.sched.bosses || []).filter((b) => !/daily/i.test(b.cycle));
+        const doneNames = new Set(wm.filter((b) => b.done).map((b) => b.name));
+        const list = wm.filter((b) => b.done || !doneNames.has(b.name));
         if (!list.length && !m.sched.error) chips.append(el("span", { class: "empty-chip", text: "게임 스케줄러에 등록된 보스가 없어요" }));
         list.forEach((b) => {
           const dk = diffKey(b.difficulty);
           chips.append(el("span", { class: "chip" + (b.done ? " done" : ""), title: `${DIFF[dk] || b.difficulty} ${b.name}${b.done ? " 처치" : " 아직"}` },
-            el("i", { class: "diff d-" + dk.toLowerCase(), text: DIFF[dk] || b.difficulty }), b.name));
+            el("i", { class: "diff d-" + dk.toLowerCase(), text: DIFF[dk] || b.difficulty }), b.name,
+            /monthly/i.test(b.cycle) ? el("small", { class: "monthly", text: "월간" }) : null));
         });
       } else {
         const got = new Set(m.boss || []);
