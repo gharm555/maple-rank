@@ -262,3 +262,26 @@ input:focus { outline: 2px solid var(--gold); outline-offset: 0; }
 .keyhelp { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--ink-faint); }
 .keyhelp a { color: var(--ink-dim); }
 .chip .monthly { font-size: 10.5px; opacity: .75; margin-left: 2px; }
+
+/* 챌섭/본섭 구분 줄 */
+.board .group, .bossrows .group {
+  list-style: none; padding: 8px 12px; font-family: "Galmuri", monospace; font-size: 12.5px; font-weight: 700;
+  color: var(--gold); background: #101a36; border-top: 2px solid var(--frame-dark);
+}
+.board .group:first-child, .bossrows .group:first-child { border-top: 0; }
+.board .group + .row { border-top: 0; }
+.nickform { display: flex; gap: 6px; margin-top: 8px; }
+.nickform input { width: 180px; }
+/* 캐릭터 추가 패널 */
+.addpanel { display: grid; gap: 10px; width: 100%; padding: 14px; background: #1b2a50; border: 2px solid var(--frame-dark); border-radius: 4px; }
+.addpanel .step { margin: 0; font-size: 13.5px; color: var(--ink-dim); }
+.addpanel #acctKey { width: 280px; }
+.picklist { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 320px; overflow-y: auto; }
+.picklist li { display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: #213159; border-radius: 3px; }
+.picklist input { width: 18px; height: 18px; accent-color: var(--guild); }
+.picklist label { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; cursor: pointer; font-size: 13.5px; color: var(--ink-dim); }
+.picklist label b { color: var(--ink); font-size: 14.5px; }
+.picklist .w { color: var(--ink); background: #1b2a50; border: 1px solid #4a62a0; border-radius: 3px; padding: 0 5px; font-size: 12px; }
+.picklist .g { color: var(--guild); font-size: 12px; }
+.linkbtn { justify-self: start; background: none; border: 0; padding: 0; color: var(--ink-faint); text-decoration: underline; cursor: pointer; font-size: 12.5px; }
+.linkbtn:hover { color: var(--ink-dim); }

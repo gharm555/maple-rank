@@ -200,11 +200,20 @@
     level: (m) => m.p, today: (m) => m.today, week: (m) => m.week,
     power: (m) => (m.cur ? m.cur.power : null), boss: (m) => bossCount(m),
   };
+  // 챌린저스 월드를 위에, 본섭을 아래에 따로 순위
+  const isChal = (m) => /챌린저스/.test((m.cur && m.cur.world) || "");
+  const groups = () => [
+    { label: "챌린저스 월드", list: members.filter(isChal) },
+    { label: "본섭", list: members.filter((m) => !isChal(m)) },
+  ].filter((g) => g.list.length);
   function renderBoard() {
     const f = sorters[sortKey];
-    const list = [...members].sort((a, b) => (f(b) ?? -Infinity) - (f(a) ?? -Infinity) || a.idx - b.idx);
     const board = $("#board");
     board.innerHTML = "";
+    const gs = groups();
+    gs.forEach((g) => {
+    if (gs.length > 1) board.append(el("li", { class: "group", text: `${g.label} ${g.list.length}명` }));
+    const list = [...g.list].sort((a, b) => (f(b) ?? -Infinity) - (f(a) ?? -Infinity) || a.idx - b.idx);
     list.forEach((m, i) => {
       const c = m.cur;
       let big, sub;
@@ -233,7 +242,11 @@
             m.auto
               ? el("button", { class: "mini", "data-unkey": m.name, text: "넥슨 키 연결 해제" })
               : el("button", { class: "mini ok", "data-key": m.name, text: "넥슨 키 연결 (보스 자동 체크)" }),
+            el("button", { class: "mini ok", "data-nick": m.name, text: "부를 이름 바꾸기" }),
             el("button", { class: "mini danger", "data-del": m.name, text: "랭킹에서 빼기" })) : null,
+          manage ? el("form", { class: "nickform", "data-for": m.name, hidden: "" },
+            el("input", { value: m.nick, maxlength: "30", placeholder: "부를 이름" }),
+            el("button", { class: "btn gold", type: "submit", text: "저장" })) : null,
           manage ? el("form", { class: "keyform", "data-for": m.name, hidden: "" },
             el("input", { type: "password", autocomplete: "off", placeholder: `${m.name} 계정의 넥슨 API 키` }),
             el("button", { class: "btn gold", type: "submit", text: "연결" }),
@@ -244,6 +257,7 @@
           el("div", { class: "track" }, el("div", { class: "fill", style: `width:${Math.min(100, c.expRate)}%` }), el("span", { class: "pct", text: c.expRate.toFixed(3) + "%" })))
           : null));
     });
+    });
   }
   // ---------- 캐릭터 관리 ----------
   let manage = false;
@@ -251,10 +265,49 @@
     manage = !manage;
     $("#manageBtn").setAttribute("aria-pressed", String(manage));
     $("#manageBtn").textContent = manage ? "관리 닫기" : "캐릭터 추가·빼기";
-    $("#addForm").hidden = !manage;
+    $("#addPanel").hidden = !manage;
     renderBoard();
-    if (manage) $("#addName").focus();
+    if (manage) $("#acctKey").focus();
   });
+  // 1) 넥슨 키 → 계정 캐릭터 목록 → 골라서 추가
+  let pendingKey = "";
+  $("#acctForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const key = $("#acctKey").value.trim(); if (!key) return;
+    const b = $("#acctForm button"); b.disabled = true; b.textContent = "불러오는 중…";
+    const j = await api("POST", "/api/account/characters", { key });
+    b.disabled = false; b.textContent = "내 캐릭터 불러오기";
+    if (!j) return;
+    pendingKey = key;
+    const box = $("#acctList");
+    box.innerHTML = "";
+    if (!j.characters.length) { box.append(el("p", { class: "keyhelp", text: "이 계정에 캐릭터가 없어요" })); box.hidden = false; return; }
+    const ul = el("ul", { class: "picklist" });
+    j.characters.forEach((c) => {
+      const id = "pk-" + Math.random().toString(36).slice(2);
+      ul.append(el("li", {},
+        el("input", { type: "checkbox", id, value: c.name, ...(c.registered ? { checked: "", "data-reg": "1" } : {}) }),
+        el("label", { for: id },
+          el("b", { text: c.name }),
+          el("span", { class: "w", text: c.world }),
+          el("span", { text: `${c.class} Lv.${c.level}` }),
+          c.registered ? el("span", { class: "g", text: "등록됨 (키 연결)" }) : null)));
+    });
+    const nick = el("input", { id: "acctNick", placeholder: "부를 이름 (선택, 예: 대노)", maxlength: "30" });
+    const go = el("button", { class: "btn gold", type: "button", text: "고른 캐릭터 추가" });
+    go.onclick = async () => {
+      const names = [...ul.querySelectorAll("input:checked")].map((x) => x.value);
+      if (!names.length) { toast("추가할 캐릭터를 골라주세요", true); return; }
+      go.disabled = true; go.textContent = "추가하는 중…";
+      const r = await api("POST", "/api/account/add", { key: pendingKey, characters: names, nickname: nick.value.trim() });
+      go.disabled = false; go.textContent = "고른 캐릭터 추가";
+      if (r) { toast(`${r.added.length}명 추가, ${r.linked.length}명 키 연결했어요`); setTimeout(() => location.reload(), 900); }
+    };
+    box.append(el("p", { class: "keyhelp", text: "랭킹에 올릴 캐릭터를 고르세요. 고른 캐릭터는 보스가 자동 체크돼요." }), ul, el("div", { class: "addform" }, nick, go));
+    box.hidden = false;
+  });
+  // 2) 키 없이 닉네임으로 추가 (보스는 직접 체크)
+  $("#nokeyBtn").addEventListener("click", () => { $("#addForm").hidden = !$("#addForm").hidden; if (!$("#addForm").hidden) $("#addName").focus(); });
   $("#addForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const character = $("#addName").value.trim(), nickname = $("#addNick").value.trim();
@@ -265,6 +318,13 @@
     if (j) { toast(`${character} 추가했어요`); setTimeout(() => location.reload(), 700); }
   });
   $("#board").addEventListener("submit", async (e) => {
+    const nf = e.target.closest(".nickform");
+    if (nf) {
+      e.preventDefault();
+      const j = await api("PUT", "/api/members", { character: nf.dataset.for, nickname: nf.querySelector("input").value.trim() });
+      if (j) { toast("이름을 바꿨어요"); setTimeout(() => location.reload(), 600); }
+      return;
+    }
     const f = e.target.closest(".keyform"); if (!f) return;
     e.preventDefault();
     const key = f.querySelector("input").value.trim(); if (!key) return;
@@ -274,6 +334,8 @@
     if (j) { toast(`${f.dataset.for} 보스 자동 체크를 켰어요`); setTimeout(() => location.reload(), 800); }
   });
   $("#board").addEventListener("click", async (e) => {
+    const n = e.target.closest("[data-nick]");
+    if (n) { const f = $(`.nickform[data-for="${CSS.escape(n.dataset.nick)}"]`); f.hidden = !f.hidden; if (!f.hidden) f.querySelector("input").focus(); return; }
     const k = e.target.closest("[data-key]");
     if (k) { const f = $(`.keyform[data-for="${CSS.escape(k.dataset.key)}"]`); f.hidden = !f.hidden; if (!f.hidden) f.querySelector("input").focus(); return; }
     const u = e.target.closest("[data-unkey]");
@@ -449,7 +511,10 @@
     $("#bossWeek").textContent = `${shortDate(weekStart)} 목요일부터`;
     const box = $("#bossRows");
     box.innerHTML = "";
-    [...members].sort((a, b) => (bossCount(b) ?? -1) - (bossCount(a) ?? -1) || a.idx - b.idx).forEach((m) => {
+    const gs = groups();
+    gs.forEach((g) => {
+    if (gs.length > 1) box.append(el("li", { class: "group", text: g.label }));
+    [...g.list].sort((a, b) => (bossCount(b) ?? -1) - (bossCount(a) ?? -1) || a.idx - b.idx).forEach((m) => {
       const head = el("div", { class: "bh" },
         el("span", { class: "bn", text: m.name }),
         el("span", { class: "mode " + (m.auto ? "on" : ""), text: m.auto ? "자동" : "직접 체크" }),
@@ -476,6 +541,7 @@
         })));
       }
       box.append(el("li", {}, head, chips));
+    });
     });
   }
   $("#bossRows").addEventListener("click", async (e) => {

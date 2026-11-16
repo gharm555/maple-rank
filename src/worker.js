@@ -46,6 +46,18 @@ const friendly = (e) =>
   /OPENAPI0001[01]/.test(e.code) ? "넥슨 API 점검 중이에요" :
   e.message || "알 수 없는 오류";
 
+// 키 주인 계정의 캐릭터 목록 (레벨 높은 순)
+async function accountCharacters(env, key) {
+  const j = await nexon(env, "/character/list", {}, key);
+  const out = [];
+  for (const acc of j.account_list || []) {
+    for (const c of acc.character_list || []) {
+      out.push({ name: c.character_name, world: c.world_name, class: c.character_class, level: Number(c.character_level), ocid: c.ocid });
+    }
+  }
+  return out.sort((a, b) => b.level - a.level).slice(0, 80);
+}
+
 async function lookupOcid(env, character) {
   try {
     return (await nexon(env, "/id", { character_name: character })).ocid;
@@ -269,6 +281,53 @@ async function handleApi(req, env, ctx, url) {
     await env.DB.prepare("UPDATE members SET nickname = ? WHERE character = ?")
       .bind(cleanName(b.nickname), cleanName(b.character)).run();
     return json({ ok: true });
+  }
+
+  if (p === "/api/account/characters" && method === "POST") {
+    const key = String((await readBody(req)).key || "").trim();
+    if (!key || key.length > 200) return fail(400, "넥슨 API 키를 붙여넣어 주세요");
+    let list;
+    try { list = await accountCharacters(env, key); }
+    catch (e) { return fail(e.code === "OPENAPI00005" ? 400 : 502, e.code === "OPENAPI00005" ? "넥슨 API 키가 올바르지 않아요" : friendly(e)); }
+    const { results } = await env.DB.prepare("SELECT character FROM members").all();
+    const reg = new Set(results.map((r) => r.character));
+    return json({ characters: list.map(({ ocid, ...c }) => ({ ...c, registered: reg.has(c.name) })) });
+  }
+
+  if (p === "/api/account/add" && method === "POST") {
+    const b = await readBody(req);
+    const key = String(b.key || "").trim();
+    const names = [...new Set((Array.isArray(b.characters) ? b.characters : []).map(cleanName).filter(Boolean))];
+    const nickname = cleanName(b.nickname);
+    if (!key || !names.length) return fail(400, "키와 캐릭터를 골라주세요");
+    let list;
+    try { list = await accountCharacters(env, key); }
+    catch (e) { return fail(502, e.code === "OPENAPI00005" ? "넥슨 API 키가 올바르지 않아요" : friendly(e)); }
+    const mine = new Map(list.map((c) => [c.name, c]));
+    const { results } = await env.DB.prepare("SELECT character FROM members").all();
+    const reg = new Set(results.map((r) => r.character));
+    let count = results.length;
+    const added = [], linked = [], skipped = [];
+    const now = Date.now();
+    for (const name of names) {
+      const c = mine.get(name);
+      if (!c) { skipped.push(name); continue; } // 이 키 계정의 캐릭터가 아님
+      if (reg.has(name)) {
+        await env.DB.prepare("UPDATE members SET user_key = ?, user_ocid = ? WHERE character = ?").bind(key, c.ocid, name).run();
+        linked.push(name);
+      } else {
+        if (count >= MAX_MEMBERS) { skipped.push(name); continue; }
+        let ocid = null;
+        try { ocid = await lookupOcid(env, name); } catch {}
+        await env.DB.prepare(
+          "INSERT INTO members (character, nickname, ocid, sort, added_at, user_key, user_ocid) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        ).bind(name, nickname, ocid || c.ocid, count++, now, key, c.ocid).run();
+        added.push(name);
+      }
+      const m = await env.DB.prepare("SELECT character, ocid, user_key, user_ocid FROM members WHERE character = ?").bind(name).first();
+      await refreshOne(env, m, now);
+    }
+    return json({ ok: true, added, linked, skipped });
   }
 
   if (p === "/api/members/key" && method === "POST") {
