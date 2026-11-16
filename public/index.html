@@ -11,8 +11,20 @@
   <header class="masthead">
     <h1 id="title">메이플 친구 랭킹</h1>
     <p class="sub" id="subtitle"></p>
-    <p class="clock" id="updated"></p>
+    <div class="side">
+      <p class="clock" id="updated"></p>
+      <div class="actions">
+        <button class="btn gold" id="refreshBtn">지금 갱신</button>
+        <button class="btn" id="codeBtn" aria-pressed="false">친구 코드 입력</button>
+      </div>
+      <form class="codeform" id="codeForm" hidden>
+        <label for="codeInput">친구 코드</label>
+        <input id="codeInput" type="password" autocomplete="off" placeholder="방장한테 받은 코드">
+        <button class="btn gold" type="submit">확인</button>
+      </form>
+    </div>
   </header>
+  <p class="toast" id="toast" role="status" aria-live="polite"></p>
 
   <section class="mvp" id="mvp" aria-live="polite"></section>
 
@@ -26,6 +38,14 @@
       <button role="tab" data-sort="boss" aria-selected="false" id="bossTab">주간 보스</button>
     </div>
     <ol class="board" id="board"></ol>
+    <div class="manage">
+      <button class="btn" id="manageBtn" aria-pressed="false">캐릭터 추가·빼기</button>
+      <form class="addform" id="addForm" hidden>
+        <input id="addName" placeholder="캐릭터 닉네임" maxlength="30" autocomplete="off" required>
+        <input id="addNick" placeholder="부를 이름 (선택)" maxlength="30" autocomplete="off">
+        <button class="btn gold" type="submit">추가</button>
+      </form>
+    </div>
     <p class="hint">성장량은 경험치 %로 보여줘요. 레벨업하면 1레벨을 100%로 쳐서, 271레벨 40%에서 272레벨 10%가 되면 +70%예요.</p>
   </section>
 
@@ -50,10 +70,17 @@
   <section class="win" id="bossCard" hidden>
     <h2 class="win-title">이번 주 보스 <span id="bossWeek"></span></h2>
     <div class="table-scroll"><table class="boss" id="bossTable"></table></div>
-    <p class="hint">구글 시트 체크를 읽어와요. 목요일 0시에 새 주가 시작돼요.</p>
+    <div class="manage">
+      <button class="btn" id="bossEditBtn">보스 목록 바꾸기</button>
+      <form class="addform" id="bossForm" hidden>
+        <input id="bossList" placeholder="스우, 데미안, 루시드" autocomplete="off">
+        <button class="btn gold" type="submit">저장</button>
+      </form>
+    </div>
+    <p class="hint">칸을 누르면 체크돼요 (친구 코드 필요). 목요일 0시에 새 주가 시작돼요.</p>
   </section>
 
-  <footer class="foot">Data based on NEXON Open API<span id="manual"></span></footer>
+  <footer class="foot">Data based on NEXON Open API</footer>
 </div>
 <script src="app.js"></script>
 </body>

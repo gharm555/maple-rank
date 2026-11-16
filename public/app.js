@@ -27,14 +27,72 @@
       return await r.json();
     } catch { return fallback; }
   }
-  const config = window.__CONFIG__ || (await loadJson("config.json", { members: [] }));
-  const data = window.__DATA__ || (await loadJson("data/data.json", {}));
+  const DEMO = !!window.__DATA__;
+  const payload = DEMO ? { config: window.__CONFIG__, data: window.__DATA__ } : await loadJson("/api/data", null);
+  if (!payload) { document.body.insertAdjacentHTML("afterbegin", '<p style="color:#fff;text-align:center;padding:20px">데이터를 불러오지 못했어요. 잠시 후 새로고침해 주세요.</p>'); }
+  const config = (payload && payload.config) || { members: [] };
+  const data = (payload && payload.data) || {};
+
+  // ---------- 친구 코드 + 쓰기 요청 ----------
+  const store = {
+    get() { try { return localStorage.getItem("friendCode") || ""; } catch { return ""; } },
+    set(v) { try { v ? localStorage.setItem("friendCode", v) : localStorage.removeItem("friendCode"); } catch {} },
+  };
+  function toast(msg, bad) {
+    const t = $("#toast");
+    t.textContent = msg;
+    t.className = "toast show" + (bad ? " bad" : "");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => (t.className = "toast"), 3500);
+  }
+  async function api(method, path, body) {
+    if (DEMO) { toast("미리보기에서는 바꿀 수 없어요", true); return null; }
+    const code = store.get();
+    if (!code) { openCode(); toast("먼저 친구 코드를 입력해 주세요", true); return null; }
+    const r = await fetch(path, {
+      method, headers: { "content-type": "application/json", "x-friend-code": code },
+      body: body ? JSON.stringify(body) : undefined,
+    }).catch(() => null);
+    if (!r) { toast("서버에 연결하지 못했어요", true); return null; }
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { store.set(""); renderCodeBtn(); openCode(); }
+    if (!r.ok) { toast(j.error || "요청이 실패했어요", true); return null; }
+    return j;
+  }
+  function renderCodeBtn() {
+    $("#codeBtn").textContent = store.get() ? "친구 코드 입력됨" : "친구 코드 입력";
+    $("#codeBtn").setAttribute("aria-pressed", String(!!store.get()));
+  }
+  function openCode() { $("#codeForm").hidden = false; $("#codeInput").focus(); }
+  $("#codeBtn").addEventListener("click", () => { const f = $("#codeForm"); f.hidden = !f.hidden; if (!f.hidden) $("#codeInput").focus(); });
+  $("#codeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const v = $("#codeInput").value.trim();
+    if (!v) return;
+    store.set(v);
+    const ok = await api("POST", "/api/auth");
+    if (ok) { toast("친구 코드 확인됐어요"); $("#codeForm").hidden = true; $("#codeInput").value = ""; }
+    else store.set("");
+    renderCodeBtn();
+  });
+  renderCodeBtn();
+  $("#refreshBtn").addEventListener("click", async () => {
+    const b = $("#refreshBtn");
+    b.disabled = true; b.textContent = "갱신하는 중…";
+    const j = await api("POST", "/api/refresh");
+    b.disabled = false; b.textContent = "지금 갱신";
+    if (j) {
+      const bad = j.results.filter((r) => !r.ok);
+      toast(bad.length ? `${bad.length}명은 실패했어요: ${bad[0].error}` : "갱신했어요", bad.length > 0);
+      setTimeout(() => location.reload(), 900);
+    }
+  });
   const latest = data.latest || {};
   const history = data.history || {};
 
   // ---------- 날짜/숫자 도우미 ----------
   const kst = (d) => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 10);
-  const now = data.updatedAt ? new Date(data.updatedAt) : new Date();
+  const now = DEMO && data.updatedAt ? new Date(data.updatedAt) : new Date();
   const today = kst(now);
   const weekStart = (() => {
     const k = new Date(now.getTime() + 9 * 3600e3);
@@ -86,7 +144,7 @@
   $("#subtitle").textContent = config.subtitle || "";
   $("#updated").textContent = data.updatedAt
     ? new Date(data.updatedAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) + " 갱신"
-    : "아직 기록이 없어요. Actions에서 Run workflow를 눌러주세요.";
+    : "아직 갱신 기록이 없어요";
 
   function ghost(m) {
     return el("div", { class: "ghost", style: `background:${m.color};color:var(--night)` }, m.name.slice(0, 1));
@@ -162,7 +220,8 @@
             c && c.class ? el("span", { text: c.class }) : null,
             c && c.guild ? el("span", { class: "g", text: c.guild }) : null,
             m.today != null && m.today > 0 && sortKey !== "today" ? el("span", { class: "gain", text: "오늘 " + fmtPct(m.today) }) : null),
-          err ? el("div", { class: "err", text: err }) : null),
+          err ? el("div", { class: "err", text: err }) : null,
+          manage ? el("button", { class: "mini danger", "data-del": m.name, text: "랭킹에서 빼기" }) : null),
         el("div", { class: "stat" }, big, el("div", { class: "sub", text: sub })),
         c ? el("div", { class: "exp", title: `경험치 ${c.expRate}%` },
           el("span", { class: "lab", text: "EXP" }),
@@ -170,6 +229,33 @@
           : null));
     });
   }
+  // ---------- 캐릭터 관리 ----------
+  let manage = false;
+  $("#manageBtn").addEventListener("click", () => {
+    manage = !manage;
+    $("#manageBtn").setAttribute("aria-pressed", String(manage));
+    $("#manageBtn").textContent = manage ? "관리 닫기" : "캐릭터 추가·빼기";
+    $("#addForm").hidden = !manage;
+    renderBoard();
+    if (manage) $("#addName").focus();
+  });
+  $("#addForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const character = $("#addName").value.trim(), nickname = $("#addNick").value.trim();
+    if (!character) return;
+    const b = $("#addForm button"); b.disabled = true; b.textContent = "찾는 중…";
+    const j = await api("POST", "/api/members", { character, nickname });
+    b.disabled = false; b.textContent = "추가";
+    if (j) { toast(`${character} 추가했어요`); setTimeout(() => location.reload(), 700); }
+  });
+  $("#board").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-del]"); if (!b) return;
+    const name = b.dataset.del;
+    if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "정말 뺄까요? 기록도 지워져요"; return; }
+    const j = await api("DELETE", "/api/members?character=" + encodeURIComponent(name));
+    if (j) { toast(`${name}을(를) 뺐어요`); setTimeout(() => location.reload(), 700); }
+  });
+
   $("#sortTabs").addEventListener("click", (e) => {
     const b = e.target.closest("button"); if (!b) return;
     sortKey = b.dataset.sort;
@@ -331,11 +417,34 @@
     [...members].sort((a, b) => (b.boss || []).length - (a.boss || []).length).forEach((m) => {
       const got = new Set(m.boss || []);
       tb.append(el("tr", {}, el("td", { text: m.name }),
-        ...bossWeek.bosses.map((b) => el("td", { class: got.has(b) ? "y" : "no", title: got.has(b) ? "처치" : "아직" }, el("span", { class: "sr", text: got.has(b) ? "처치" : "아직" }))),
+        ...bossWeek.bosses.map((b) => el("td", {},
+          el("button", { class: "chk", "aria-pressed": String(got.has(b)), "data-c": m.name, "data-b": b, title: `${m.name} ${b}` },
+            el("span", { class: "sr", text: `${m.name} ${b} ${got.has(b) ? "처치" : "아직"}` })))),
         el("td", { class: "cnt", text: String(got.size) })));
     });
     t.append(tb);
   }
+
+  $("#bossTable").addEventListener("click", async (e) => {
+    const b = e.target.closest(".chk"); if (!b) return;
+    const checked = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(checked)); // 먼저 바꿔 보여주고
+    const j = await api("POST", "/api/boss", { character: b.dataset.c, boss: b.dataset.b, checked });
+    if (!j) { b.setAttribute("aria-pressed", String(!checked)); return; }
+    const m = members.find((x) => x.name === b.dataset.c);
+    m.boss = checked ? [...(m.boss || []), b.dataset.b] : (m.boss || []).filter((x) => x !== b.dataset.b);
+    b.closest("tr").querySelector(".cnt").textContent = String(m.boss.length);
+  });
+  $("#bossEditBtn").addEventListener("click", () => {
+    const f = $("#bossForm"); f.hidden = !f.hidden;
+    if (!f.hidden) { $("#bossList").value = (bossWeek ? bossWeek.bosses : []).join(", "); $("#bossList").focus(); }
+  });
+  $("#bossForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const bosses = $("#bossList").value.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+    const j = await api("PUT", "/api/bosses", { bosses });
+    if (j) { toast("보스 목록을 바꿨어요"); setTimeout(() => location.reload(), 700); }
+  });
 
   if (config.repo) {
     const a = el("a", { href: `https://github.com/${config.repo}/actions/workflows/update.yml`, target: "_blank", rel: "noopener", text: "지금 갱신하기 (관리자)" });

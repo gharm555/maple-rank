@@ -1,0 +1,17 @@
+name = "maple-rank"
+main = "src/worker.js"
+compatibility_date = "2025-10-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "maple-rank"
+database_id = "__D1_ID__"          # 배포할 때 GitHub Actions가 채워 넣어요
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["7,37 * * * *"]          # 30분마다 넥슨 API 조회
