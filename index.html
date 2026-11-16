@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메이플 친구 랭킹</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="page">
+  <header class="masthead">
+    <h1 id="title">메이플 친구 랭킹</h1>
+    <p class="sub" id="subtitle"></p>
+    <p class="clock" id="updated"></p>
+  </header>
+
+  <section class="mvp" id="mvp" aria-live="polite"></section>
+
+  <section class="win">
+    <h2 class="win-title">랭킹</h2>
+    <div class="tabs" id="sortTabs" role="tablist" aria-label="정렬 기준">
+      <button role="tab" data-sort="level" aria-selected="true">레벨</button>
+      <button role="tab" data-sort="today" aria-selected="false">오늘 성장</button>
+      <button role="tab" data-sort="week" aria-selected="false">이번 주</button>
+      <button role="tab" data-sort="power" aria-selected="false">전투력</button>
+      <button role="tab" data-sort="boss" aria-selected="false" id="bossTab">주간 보스</button>
+    </div>
+    <ol class="board" id="board"></ol>
+    <p class="hint">성장량은 경험치 %로 보여줘요. 레벨업하면 1레벨을 100%로 쳐서, 271레벨 40%에서 272레벨 10%가 되면 +70%예요.</p>
+  </section>
+
+  <section class="win">
+    <h2 class="win-title">성장 기록</h2>
+    <div class="chart-bar">
+      <div class="toggle" id="metricTabs" aria-label="지표">
+        <button data-metric="exp" aria-pressed="true">경험치 성장</button>
+        <button data-metric="power" aria-pressed="false">전투력 성장</button>
+      </div>
+      <div class="toggle" id="rangeTabs" aria-label="기간">
+        <button data-range="7" aria-pressed="true">7일</button>
+        <button data-range="30" aria-pressed="false">30일</button>
+        <button data-range="0" aria-pressed="false">전체</button>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="chart" id="chart"></div>
+    <p class="hint">기간이 시작될 때를 0으로 두고, 그날까지 쌓인 성장량을 그려요. 선이 평평하면 그날은 안 큰 거예요.</p>
+  </section>
+
+  <section class="win" id="bossCard" hidden>
+    <h2 class="win-title">이번 주 보스 <span id="bossWeek"></span></h2>
+    <div class="table-scroll"><table class="boss" id="bossTable"></table></div>
+    <p class="hint">구글 시트 체크를 읽어와요. 목요일 0시에 새 주가 시작돼요.</p>
+  </section>
+
+  <footer class="foot">Data based on NEXON Open API</footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
