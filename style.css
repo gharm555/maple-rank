@@ -189,3 +189,5 @@ table.boss { border-collapse: collapse; width: 100%; font-size: 13.5px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .legend[hidden] { display: none; }
+
+.foot a { color: var(--ink-dim); }

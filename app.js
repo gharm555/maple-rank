@@ -337,6 +337,10 @@
     t.append(tb);
   }
 
+  if (config.repo) {
+    const a = el("a", { href: `https://github.com/${config.repo}/actions/workflows/update.yml`, target: "_blank", rel: "noopener", text: "지금 갱신하기 (관리자)" });
+    $("#manual").append(document.createElement("br"), a);
+  }
   renderMvp();
   renderBoard();
   renderLegend();
