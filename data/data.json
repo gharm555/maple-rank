@@ -2,16 +2,16 @@
  "ocid": {},
  "latest": {
   "여기에캐릭명1": {
-   "error": "캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인)"
+   "error": "캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인) [OPENAPI00004 Please input valid parameter]"
   },
   "여기에캐릭명2": {
-   "error": "캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인)"
+   "error": "캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인) [OPENAPI00004 Please input valid parameter]"
   },
   "여기에캐릭명3": {
-   "error": "캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인)"
+   "error": "캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인) [OPENAPI00004 Please input valid parameter]"
   }
  },
  "history": {},
  "bossWeeks": {},
- "updatedAt": "2026-11-16T12:54:11.150Z"
+ "updatedAt": "2026-11-16T12:57:17.942Z"
 }
