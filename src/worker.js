@@ -25,11 +25,11 @@ const fail = (status, message) => json({ error: message }, status);
 class NexonError extends Error {
   constructor(code, message, status) { super(message); this.code = code; this.status = status; }
 }
-async function nexon(env, path, params) {
+async function nexon(env, path, params, key) {
   const base = env.NEXON_API_BASE || "https://open.api.nexon.com/maplestory/v1";
   const url = `${base}${path}?${new URLSearchParams(params)}`;
   for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(url, { headers: { "x-nxopen-api-key": env.NEXON_API_KEY || "" } });
+    const res = await fetch(url, { headers: { "x-nxopen-api-key": key || env.NEXON_API_KEY || "" } });
     if (res.ok) return res.json();
     const body = await res.json().catch(() => ({}));
     if (res.status === 429 || res.status >= 500) {
@@ -52,6 +52,36 @@ async function lookupOcid(env, character) {
   } catch (e) {
     if (e.code === "OPENAPI00004" || e.code === "OPENAPI00003") return null; // 없는 캐릭터
     throw e;
+  }
+}
+
+// ---------- 스케줄러 (친구 본인 키 필요) ----------
+const truthy = (v) => v === true || v === "true";
+function parseScheduler(j) {
+  const bosses = (j.boss_contents || []).map((b) => ({
+    name: b.content_name, difficulty: b.difficulty || "", cycle: b.cycle || "",
+    order: Number(b.list_order_no ?? 999), registered: truthy(b.registration_flag), done: truthy(b.complete_flag),
+  })).filter((b) => b.registered || b.done).sort((a, b) => a.order - b.order);
+  return {
+    clear_count: Number(j.weekly_boss_clear_count ?? bosses.filter((b) => b.done).length),
+    clear_limit: j.weekly_boss_clear_limit_count == null ? null : Number(j.weekly_boss_clear_limit_count),
+    bosses,
+  };
+}
+async function refreshScheduler(env, m, now) {
+  try {
+    const j = await nexon(env, "/scheduler/character-state", { ocid: m.user_ocid }, m.user_key);
+    const sc = parseScheduler(j);
+    await env.DB.prepare(
+      `INSERT INTO scheduler (character, clear_count, clear_limit, bosses, fetched_at, error) VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+       ON CONFLICT(character) DO UPDATE SET clear_count=?2, clear_limit=?3, bosses=?4, fetched_at=?5, error=NULL`
+    ).bind(m.character, sc.clear_count, sc.clear_limit, JSON.stringify(sc.bosses), now).run();
+  } catch (e) {
+    const msg = e.code === "OPENAPI00002" || e.code === "OPENAPI00005"
+      ? "연결한 키로 스케줄러를 볼 수 없어요 (키를 다시 연결해 주세요)" : friendly(e);
+    await env.DB.prepare(
+      `INSERT INTO scheduler (character, error) VALUES (?1, ?2) ON CONFLICT(character) DO UPDATE SET error=?2`
+    ).bind(m.character, msg).run();
   }
 }
 
@@ -85,6 +115,7 @@ async function refreshOne(env, m, now) {
         "INSERT OR REPLACE INTO snapshots (character, ts, date, level, exp_rate, exp, power) VALUES (?, ?, ?, ?, ?, ?, ?)"
       ).bind(m.character, now, kstDate(now), level, expRate, exp, power),
     ]);
+    if (m.user_key && m.user_ocid) await refreshScheduler(env, m, now);
     return { character: m.character, ok: true };
   } catch (e) {
     // 닉변 등으로 ocid가 무효가 되면 다음번에 다시 찾도록 비움
@@ -101,7 +132,7 @@ async function refreshOne(env, m, now) {
 
 async function refreshAll(env) {
   const now = Date.now();
-  const { results } = await env.DB.prepare("SELECT character, ocid FROM members ORDER BY sort, added_at").all();
+  const { results } = await env.DB.prepare("SELECT character, ocid, user_key, user_ocid FROM members ORDER BY sort, added_at").all();
   const out = [];
   // 넥슨 초당 호출 제한을 넘지 않게 한 명씩
   for (const m of results) out.push(await refreshOne(env, m, now));
@@ -122,8 +153,8 @@ async function buildData(env) {
   const s = await getSettings(env);
   const since = kstDate(Date.now() - HISTORY_DAYS * 864e5);
   const week = weekKey();
-  const [members, latest, hist, boss] = await env.DB.batch([
-    env.DB.prepare("SELECT character, nickname FROM members ORDER BY sort, added_at"),
+  const [members, latest, hist, boss, sched] = await env.DB.batch([
+    env.DB.prepare("SELECT character, nickname, user_key IS NOT NULL AS auto FROM members ORDER BY sort, added_at"),
     env.DB.prepare("SELECT * FROM latest"),
     // 날짜별 마지막 기록
     env.DB.prepare(
@@ -132,7 +163,15 @@ async function buildData(env) {
          ON s.character = d.character AND s.ts = d.ts`
     ).bind(since),
     env.DB.prepare("SELECT character, boss FROM boss_checks WHERE week = ?").bind(week),
+    env.DB.prepare("SELECT * FROM scheduler"),
   ]);
+  const scheduler = {};
+  for (const r of sched.results) {
+    scheduler[r.character] = {
+      count: r.clear_count, limit: r.clear_limit, bosses: r.bosses ? JSON.parse(r.bosses) : [],
+      fetchedAt: r.fetched_at, error: r.error,
+    };
+  }
   const history = {};
   for (const r of hist.results) {
     (history[r.character] ??= {})[r.date] = { level: r.level, expRate: r.exp_rate, exp: r.exp, power: r.power };
@@ -150,7 +189,7 @@ async function buildData(env) {
   return {
     config: {
       title: s.title, subtitle: s.subtitle,
-      members: members.results.map((m) => ({ character: m.character, nickname: m.nickname })),
+      members: members.results.map((m) => ({ character: m.character, nickname: m.nickname, auto: !!m.auto })),
     },
     data: {
       updatedAt: lastRefresh ? new Date(lastRefresh).toISOString() : null,
@@ -158,6 +197,7 @@ async function buildData(env) {
       latest: latestMap,
       history,
       bossWeeks: { [week]: { bosses: JSON.parse(s.bosses || "[]"), checks } },
+      scheduler,
     },
   };
 }
@@ -219,6 +259,7 @@ async function handleApi(req, env, ctx, url) {
       env.DB.prepare("DELETE FROM latest WHERE character = ?").bind(character),
       env.DB.prepare("DELETE FROM snapshots WHERE character = ?").bind(character),
       env.DB.prepare("DELETE FROM boss_checks WHERE character = ?").bind(character),
+      env.DB.prepare("DELETE FROM scheduler WHERE character = ?").bind(character),
     ]);
     return json({ ok: true });
   }
@@ -227,6 +268,38 @@ async function handleApi(req, env, ctx, url) {
     const b = await readBody(req);
     await env.DB.prepare("UPDATE members SET nickname = ? WHERE character = ?")
       .bind(cleanName(b.nickname), cleanName(b.character)).run();
+    return json({ ok: true });
+  }
+
+  if (p === "/api/members/key" && method === "POST") {
+    const b = await readBody(req);
+    const character = cleanName(b.character);
+    const key = String(b.key || "").trim();
+    if (!key || key.length > 200) return fail(400, "넥슨 API 키를 붙여넣어 주세요");
+    const member = await env.DB.prepare("SELECT character FROM members WHERE character = ?").bind(character).first();
+    if (!member) return fail(404, "등록되지 않은 캐릭터예요");
+    // 친구 키로 캐릭터를 찾고, 그 키로 스케줄러가 실제로 보이는지 확인
+    let userOcid;
+    try {
+      userOcid = (await nexon(env, "/id", { character_name: character }, key)).ocid;
+      await nexon(env, "/scheduler/character-state", { ocid: userOcid }, key);
+    } catch (e) {
+      if (e.code === "OPENAPI00005") return fail(400, "넥슨 API 키가 올바르지 않아요");
+      if (e.code === "OPENAPI00002") return fail(403, "이 키로는 이 캐릭터의 스케줄러를 볼 수 없어요. 캐릭터 주인 계정에서 발급한 키인지 확인해 주세요");
+      return fail(502, friendly(e));
+    }
+    await env.DB.prepare("UPDATE members SET user_key = ?, user_ocid = ? WHERE character = ?")
+      .bind(key, userOcid, character).run();
+    await refreshScheduler(env, { character, user_key: key, user_ocid: userOcid }, Date.now());
+    return json({ ok: true });
+  }
+
+  if (p === "/api/members/key" && method === "DELETE") {
+    const character = cleanName(url.searchParams.get("character"));
+    await env.DB.batch([
+      env.DB.prepare("UPDATE members SET user_key = NULL, user_ocid = NULL WHERE character = ?").bind(character),
+      env.DB.prepare("DELETE FROM scheduler WHERE character = ?").bind(character),
+    ]);
     return json({ ok: true });
   }
 

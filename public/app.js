@@ -136,6 +136,8 @@
       week: p != null && pWeek != null ? p - pWeek : null,
       powerWeek: cur && wDay ? cur.power - wDay.power : null,
       boss: bossWeek ? (bossWeek.checks[name] || bossWeek.checks[m.nickname] || []) : null,
+      auto: !!m.auto,
+      sched: (data.scheduler || {})[name] || null,
     };
   });
 
@@ -157,6 +159,12 @@
       a.append(img);
     } else a.append(el("span", { class: "ghost", text: m.name.slice(0, 1) }));
     return a;
+  }
+
+  // 자동(스케줄러) 연결된 친구는 넥슨 집계, 아니면 직접 체크한 개수
+  function bossCount(m) {
+    if (m.auto && m.sched && m.sched.count != null) return m.sched.count;
+    return m.boss ? m.boss.length : null;
   }
 
   // ---------- 오늘의 성장왕 (없으면 최고 레벨) ----------
@@ -190,7 +198,7 @@
   let sortKey = "level";
   const sorters = {
     level: (m) => m.p, today: (m) => m.today, week: (m) => m.week,
-    power: (m) => (m.cur ? m.cur.power : null), boss: (m) => (m.boss ? m.boss.length : null),
+    power: (m) => (m.cur ? m.cur.power : null), boss: (m) => bossCount(m),
   };
   function renderBoard() {
     const f = sorters[sortKey];
@@ -205,7 +213,7 @@
       else if (sortKey === "power") { big = B("", fmtPower(c.power)); sub = m.powerWeek > 0 ? `이번 주 +${fmtPower(m.powerWeek)}` : ""; }
       else if (sortKey === "today") { big = B("", fmtPct(m.today)); sub = `${c.level}레벨`; }
       else if (sortKey === "week") { big = B("", fmtPct(m.week)); sub = `${c.level}레벨`; }
-      else if (sortKey === "boss") { big = B("", m.boss ? `${m.boss.length}마리` : "–"); sub = ""; }
+      else if (sortKey === "boss") { const n = bossCount(m); big = B("", n == null ? "–" : `${n}마리`); sub = m.auto && m.sched && m.sched.limit ? `제한 ${m.sched.limit}` : m.auto ? "자동" : "직접 체크"; }
       else { big = B("LV.", String(c.level)); sub = ""; }
 
       const rankCls = "rank" + (i < 3 && f(m) != null ? " r" + (i + 1) : "");
@@ -221,7 +229,15 @@
             c && c.guild ? el("span", { class: "g", text: c.guild }) : null,
             m.today != null && m.today > 0 && sortKey !== "today" ? el("span", { class: "gain", text: "오늘 " + fmtPct(m.today) }) : null),
           err ? el("div", { class: "err", text: err }) : null,
-          manage ? el("button", { class: "mini danger", "data-del": m.name, text: "랭킹에서 빼기" }) : null),
+          manage ? el("div", { class: "rowtools" },
+            m.auto
+              ? el("button", { class: "mini", "data-unkey": m.name, text: "넥슨 키 연결 해제" })
+              : el("button", { class: "mini ok", "data-key": m.name, text: "넥슨 키 연결 (보스 자동 체크)" }),
+            el("button", { class: "mini danger", "data-del": m.name, text: "랭킹에서 빼기" })) : null,
+          manage ? el("form", { class: "keyform", "data-for": m.name, hidden: "" },
+            el("input", { type: "password", autocomplete: "off", placeholder: `${m.name} 계정의 넥슨 API 키` }),
+            el("button", { class: "btn gold", type: "submit", text: "연결" }),
+            el("p", { class: "keyhelp" }, "캐릭터 주인이 ", el("a", { href: "https://openapi.nexon.com/ko/my-application/", target: "_blank", rel: "noopener", text: "넥슨 Open API" }), "에서 발급한 키여야 해요. 키는 서버에만 저장되고 화면에는 다시 보이지 않아요.")) : null),
         el("div", { class: "stat" }, big, el("div", { class: "sub", text: sub })),
         c ? el("div", { class: "exp", title: `경험치 ${c.expRate}%` },
           el("span", { class: "lab", text: "EXP" }),
@@ -248,7 +264,25 @@
     b.disabled = false; b.textContent = "추가";
     if (j) { toast(`${character} 추가했어요`); setTimeout(() => location.reload(), 700); }
   });
+  $("#board").addEventListener("submit", async (e) => {
+    const f = e.target.closest(".keyform"); if (!f) return;
+    e.preventDefault();
+    const key = f.querySelector("input").value.trim(); if (!key) return;
+    const btn = f.querySelector("button"); btn.disabled = true; btn.textContent = "확인 중…";
+    const j = await api("POST", "/api/members/key", { character: f.dataset.for, key });
+    btn.disabled = false; btn.textContent = "연결";
+    if (j) { toast(`${f.dataset.for} 보스 자동 체크를 켰어요`); setTimeout(() => location.reload(), 800); }
+  });
   $("#board").addEventListener("click", async (e) => {
+    const k = e.target.closest("[data-key]");
+    if (k) { const f = $(`.keyform[data-for="${CSS.escape(k.dataset.key)}"]`); f.hidden = !f.hidden; if (!f.hidden) f.querySelector("input").focus(); return; }
+    const u = e.target.closest("[data-unkey]");
+    if (u) {
+      if (u.dataset.sure !== "1") { u.dataset.sure = "1"; u.textContent = "정말 해제할까요?"; return; }
+      const j = await api("DELETE", "/api/members/key?character=" + encodeURIComponent(u.dataset.unkey));
+      if (j) { toast("키 연결을 해제했어요"); setTimeout(() => location.reload(), 700); }
+      return;
+    }
     const b = e.target.closest("[data-del]"); if (!b) return;
     const name = b.dataset.del;
     if (b.dataset.sure !== "1") { b.dataset.sure = "1"; b.textContent = "정말 뺄까요? 기록도 지워져요"; return; }
@@ -405,35 +439,51 @@
   segBind("#rangeTabs", (b) => (range = +b.dataset.range));
   let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(renderChart, 120); });
 
-  // ---------- 보스 표 ----------
+  // ---------- 주간 보스 ----------
+  const DIFF = { EASY: "이지", NORMAL: "노멀", HARD: "하드", CHAOS: "카오스", EXTREME: "익스트림" };
+  const DIFF_KO = { 이지: "EASY", 노멀: "NORMAL", 하드: "HARD", 카오스: "CHAOS", 익스트림: "EXTREME" };
+  const diffKey = (d) => DIFF_KO[String(d || "").trim()] || String(d || "").toUpperCase();
   function renderBoss() {
     if (!bossWeek) return;
     $("#bossCard").hidden = false;
     $("#bossWeek").textContent = `${shortDate(weekStart)} 목요일부터`;
-    const t = $("#bossTable");
-    t.innerHTML = "";
-    t.append(el("thead", {}, el("tr", {}, el("th", { text: "캐릭터" }), ...bossWeek.bosses.map((b) => el("th", { text: b })), el("th", { text: "합계" }))));
-    const tb = el("tbody");
-    [...members].sort((a, b) => (b.boss || []).length - (a.boss || []).length).forEach((m) => {
-      const got = new Set(m.boss || []);
-      tb.append(el("tr", {}, el("td", { text: m.name }),
-        ...bossWeek.bosses.map((b) => el("td", {},
-          el("button", { class: "chk", "aria-pressed": String(got.has(b)), "data-c": m.name, "data-b": b, title: `${m.name} ${b}` },
-            el("span", { class: "sr", text: `${m.name} ${b} ${got.has(b) ? "처치" : "아직"}` })))),
-        el("td", { class: "cnt", text: String(got.size) })));
+    const box = $("#bossRows");
+    box.innerHTML = "";
+    [...members].sort((a, b) => (bossCount(b) ?? -1) - (bossCount(a) ?? -1) || a.idx - b.idx).forEach((m) => {
+      const head = el("div", { class: "bh" },
+        el("span", { class: "bn", text: m.name }),
+        el("span", { class: "mode " + (m.auto ? "on" : ""), text: m.auto ? "자동" : "직접 체크" }),
+        el("span", { class: "bc" }, el("b", { text: String(bossCount(m) ?? 0) }),
+          m.auto && m.sched && m.sched.limit ? ` / ${m.sched.limit}` : ""));
+      const chips = el("div", { class: "chips" });
+      if (m.auto && m.sched) {
+        if (m.sched.error) chips.append(el("span", { class: "err", text: m.sched.error }));
+        const list = m.sched.bosses || [];
+        if (!list.length && !m.sched.error) chips.append(el("span", { class: "empty-chip", text: "게임 스케줄러에 등록된 보스가 없어요" }));
+        list.forEach((b) => {
+          const dk = diffKey(b.difficulty);
+          chips.append(el("span", { class: "chip" + (b.done ? " done" : ""), title: `${DIFF[dk] || b.difficulty} ${b.name}${b.done ? " 처치" : " 아직"}` },
+            el("i", { class: "diff d-" + dk.toLowerCase(), text: DIFF[dk] || b.difficulty }), b.name));
+        });
+      } else {
+        const got = new Set(m.boss || []);
+        bossWeek.bosses.forEach((b) => chips.append(el("button", {
+          class: "chip toggle" + (got.has(b) ? " done" : ""), "aria-pressed": String(got.has(b)), "data-c": m.name, "data-b": b, text: b,
+        })));
+      }
+      box.append(el("li", {}, head, chips));
     });
-    t.append(tb);
   }
-
-  $("#bossTable").addEventListener("click", async (e) => {
-    const b = e.target.closest(".chk"); if (!b) return;
+  $("#bossRows").addEventListener("click", async (e) => {
+    const b = e.target.closest(".chip.toggle"); if (!b) return;
     const checked = b.getAttribute("aria-pressed") !== "true";
-    b.setAttribute("aria-pressed", String(checked)); // 먼저 바꿔 보여주고
+    const set = (v) => { b.setAttribute("aria-pressed", String(v)); b.classList.toggle("done", v); };
+    set(checked); // 먼저 바꿔 보여주고
     const j = await api("POST", "/api/boss", { character: b.dataset.c, boss: b.dataset.b, checked });
-    if (!j) { b.setAttribute("aria-pressed", String(!checked)); return; }
+    if (!j) { set(!checked); return; }
     const m = members.find((x) => x.name === b.dataset.c);
     m.boss = checked ? [...(m.boss || []), b.dataset.b] : (m.boss || []).filter((x) => x !== b.dataset.b);
-    b.closest("tr").querySelector(".cnt").textContent = String(m.boss.length);
+    b.closest("li").querySelector(".bc b").textContent = String(m.boss.length);
   });
   $("#bossEditBtn").addEventListener("click", () => {
     const f = $("#bossForm"); f.hidden = !f.hidden;

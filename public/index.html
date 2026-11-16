@@ -69,15 +69,15 @@
 
   <section class="win" id="bossCard" hidden>
     <h2 class="win-title">이번 주 보스 <span id="bossWeek"></span></h2>
-    <div class="table-scroll"><table class="boss" id="bossTable"></table></div>
+    <ol class="bossrows" id="bossRows"></ol>
     <div class="manage">
-      <button class="btn" id="bossEditBtn">보스 목록 바꾸기</button>
+      <button class="btn" id="bossEditBtn">직접 체크용 보스 목록 바꾸기</button>
       <form class="addform" id="bossForm" hidden>
         <input id="bossList" placeholder="스우, 데미안, 루시드" autocomplete="off">
         <button class="btn gold" type="submit">저장</button>
       </form>
     </div>
-    <p class="hint">칸을 누르면 체크돼요 (친구 코드 필요). 목요일 0시에 새 주가 시작돼요.</p>
+    <p class="hint">넥슨 키를 연결한 친구는 게임 스케줄러 기록으로 자동 체크돼요. 나머지는 보스를 눌러 직접 체크해요 (친구 코드 필요). 목요일 0시에 새 주가 시작돼요.</p>
   </section>
 
   <footer class="foot">Data based on NEXON Open API</footer>
