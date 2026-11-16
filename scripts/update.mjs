@@ -92,8 +92,9 @@ export async function main() {
     const name = m.character;
     try {
       if (!data.ocid[name]) {
-        data.ocid[name] = (await call("/id", { character_name: name }).catch(() => {
-          throw new Error("캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인)");
+        data.ocid[name] = (await call("/id", { character_name: name }).catch((e) => {
+          if (/OPENAPI00005|OPENAPI00002/.test(e.message)) throw new Error("API 키가 잘못됐어요 (Secrets의 NEXON_API_KEY 확인)");
+          throw new Error(`캐릭터를 찾을 수 없어요 (닉네임/띄어쓰기 확인) [${e.message}]`);
         })).ocid;
         await sleep(250);
       }
